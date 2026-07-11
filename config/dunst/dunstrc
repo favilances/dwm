@@ -1,0 +1,34 @@
+[global]
+    monitor = 0
+    follow = mouse
+    width = 360
+    height = 120
+    origin = top-right
+    offset = 12x42
+    notification_limit = 5
+    progress_bar = true
+    font = Noto Sans 10
+    frame_width = 1
+    frame_color = "#4f5666"
+    corner_radius = 4
+    separator_height = 1
+    padding = 10
+    horizontal_padding = 12
+    icon_theme = Papirus-Dark
+    enable_recursive_icon_lookup = true
+
+[urgency_low]
+    background = "#17191e"
+    foreground = "#b7becb"
+    timeout = 4
+
+[urgency_normal]
+    background = "#17191e"
+    foreground = "#e6e9ef"
+    timeout = 7
+
+[urgency_critical]
+    background = "#17191e"
+    foreground = "#ffffff"
+    frame_color = "#e06c75"
+    timeout = 0
