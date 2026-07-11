@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+COMMON=${NOIR_DWM_COMMON:-$SCRIPT_DIR/lib/noir-common.sh}
+[[ -r $COMMON ]] || COMMON=/usr/local/lib/noir-dwm/noir-common.sh
+# shellcheck source=scripts/lib/noir-common.sh
+source "$COMMON"
+
+bt_powered() {
+	LC_ALL=C bluetoothctl show 2>/dev/null | awk -F': ' '/^[[:space:]]*Powered:/ { print $2; exit }'
+}
+
+bt_status() {
+	if ! command -v bluetoothctl >/dev/null 2>&1; then
+		printf 'BT aracı yok\n'
+		return
+	fi
+	if [[ $(bt_powered) != yes ]]; then
+		printf 'BT kapalı\n'
+		return
+	fi
+
+	local line names='' name
+	while IFS= read -r line; do
+		[[ $line == Device\ * ]] || continue
+		name=${line#Device }
+		name=${name#* }
+		[[ -n $name ]] || continue
+		[[ -z $names ]] && names=$name || names+=", $name"
+	done < <(LC_ALL=C bluetoothctl devices Connected 2>/dev/null)
+
+	if [[ -n $names ]]; then
+		printf 'BT %s\n' "$names"
+	else
+		printf 'BT açık\n'
+	fi
+}
+
+bt_on() {
+	command -v rfkill >/dev/null 2>&1 && rfkill unblock bluetooth 2>/dev/null || true
+	noir_run_checked Bluetooth bluetoothctl power on
+}
+
+bt_off() {
+	noir_run_checked Bluetooth bluetoothctl power off
+}
+
+bt_toggle() {
+	[[ $(bt_powered) == yes ]] && bt_off || bt_on
+}
+
+device_info_value() {
+	local mac=$1 key=$2
+	bluetoothctl info "$mac" 2>/dev/null | awk -F': ' -v key="$key" \
+		'$1 ~ "^[[:space:]]*" key "$" { print $2; exit }'
+}
+
+bt_device_action() {
+	local mac=$1 name=$2 connected paired trusted choice
+	connected=$(device_info_value "$mac" Connected)
+	paired=$(device_info_value "$mac" Paired)
+	trusted=$(device_info_value "$mac" Trusted)
+
+	local connect_label pair_label trust_label
+	[[ $connected == yes ]] && connect_label='Baglantiyi kes' || connect_label='Baglan'
+	[[ $paired == yes ]] && pair_label='Eslesmeyi kaldir' || pair_label='Eslestir'
+	[[ $trusted == yes ]] && trust_label='Guveni kaldir' || trust_label='Guvenilir yap'
+
+	choice=$(printf '%s\n' "$connect_label" "$pair_label" "$trust_label" 'Cihazi unut' \
+		| noir_menu "$name") || return 0
+
+	case $choice in
+		'Baglan') noir_run_checked Bluetooth bluetoothctl --timeout 30 connect "$mac" ;;
+		'Baglantiyi kes') noir_run_checked Bluetooth bluetoothctl disconnect "$mac" ;;
+		'Eslestir')
+			if noir_run_checked Bluetooth bluetoothctl --timeout 45 pair "$mac"; then
+				bluetoothctl trust "$mac" >/dev/null 2>&1 || true
+				bluetoothctl --timeout 30 connect "$mac" >/dev/null 2>&1 || true
+			fi
+			;;
+		'Eslesmeyi kaldir' | 'Cihazi unut') noir_run_checked Bluetooth bluetoothctl remove "$mac" ;;
+		'Guvenilir yap') noir_run_checked Bluetooth bluetoothctl trust "$mac" ;;
+		'Guveni kaldir') noir_run_checked Bluetooth bluetoothctl untrust "$mac" ;;
+	esac
+}
+
+bt_devices() {
+	local scan=${1:-no} line rest mac name choice index
+	local -a labels=() macs=() names=()
+	local -A seen=()
+
+	[[ $(bt_powered) == yes ]] || bt_on || return 1
+	if [[ $scan == yes ]]; then
+		noir_notify normal Bluetooth 'Cihazlar 8 saniye boyunca taraniyor...'
+		bluetoothctl --timeout 8 scan on >/dev/null 2>&1 || true
+		bluetoothctl scan off >/dev/null 2>&1 || true
+	fi
+
+	while IFS= read -r line; do
+		[[ $line == Device\ * ]] || continue
+		rest=${line#Device }
+		mac=${rest%% *}
+		name=${rest#* }
+		[[ -n $mac && -n $name && -z ${seen[$mac]+x} ]] || continue
+		seen[$mac]=1
+		macs+=("$mac")
+		names+=("$name")
+		printf -v index '%02d' "${#macs[@]}"
+		labels+=("$index  $name  [$mac]")
+	done < <(bluetoothctl devices 2>/dev/null)
+
+	((${#labels[@]})) || {
+		noir_notify normal Bluetooth 'Cihaz bulunamadi.'
+		return 0
+	}
+	choice=$(printf '%s\n' "${labels[@]}" | noir_menu Bluetooth) || return 0
+	index=${choice%% *}
+	[[ $index =~ ^[0-9]+$ ]] || return 1
+	bt_device_action "${macs[10#$index - 1]}" "${names[10#$index - 1]}"
+}
+
+bt_menu() {
+	local power_label choice
+	[[ $(bt_powered) == yes ]] && power_label="Bluetooth'u kapat" || power_label="Bluetooth'u ac"
+	choice=$(printf '%s\n' "$power_label" 'Kayitli ve gorulen cihazlar' 'Cihazlari tara' \
+		'Gelismis Bluetooth ayarlari' | noir_menu Bluetooth) || return 0
+
+	case $choice in
+		"$power_label") bt_toggle ;;
+		'Kayitli ve gorulen cihazlar') bt_devices no ;;
+		'Cihazlari tara') bt_devices yes ;;
+		'Gelismis Bluetooth ayarlari')
+			if command -v blueman-manager >/dev/null 2>&1; then
+				blueman-manager >/dev/null 2>&1 &
+			else
+				noir_notify normal Bluetooth 'blueman-manager bulunamadi.'
+			fi
+			;;
+	esac
+}
+
+bt_settings() {
+	command -v rfkill >/dev/null 2>&1 && rfkill unblock bluetooth 2>/dev/null || true
+	if command -v bluetuith >/dev/null 2>&1; then
+		noir_open_tui Bluetuith Bluetuith bluetuith
+	elif command -v bluetui >/dev/null 2>&1; then
+		noir_open_tui Bluetuith Bluetuith bluetui
+	elif command -v blueman-manager >/dev/null 2>&1; then
+		blueman-manager >/dev/null 2>&1 &
+	else
+		bt_menu
+	fi
+}
+
+action=${1:-status}
+case ${BLOCK_BUTTON:-} in
+	1) action=menu ;;
+	3) action=toggle ;;
+esac
+
+case $action in
+	status) bt_status ;;
+	settings) bt_settings ;;
+	menu) bt_menu ;;
+	toggle) bt_toggle ;;
+	scan) bt_devices yes ;;
+	*)
+		printf 'Kullanim: %s [status|settings|menu|toggle|scan]\n' "${0##*/}" >&2
+		exit 2
+		;;
+esac

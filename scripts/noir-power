@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+COMMON=${NOIR_DWM_COMMON:-$SCRIPT_DIR/lib/noir-common.sh}
+[[ -r $COMMON ]] || COMMON=/usr/local/lib/noir-dwm/noir-common.sh
+# shellcheck source=scripts/lib/noir-common.sh
+source "$COMMON"
+
+confirm_action() {
+	local action=$1 question=$2
+	noir_confirm noirLang "$question" || return 0
+	case $action in
+		shutdown) systemctl poweroff ;;
+		reboot) systemctl reboot ;;
+		suspend) systemctl suspend ;;
+		logout) pkill -TERM -x dwm ;;
+	esac
+}
+
+power_menu() {
+	local choice
+	choice=$(printf '%s\n' 'Bilgisayari kapat' 'Yeniden baslat' 'Askiya al' 'Oturumu kapat' \
+		| noir_menu Guc) || return 0
+	case $choice in
+		'Bilgisayari kapat') confirm_action shutdown 'Sistemi kapatmak istiyor musunuz?' ;;
+		'Yeniden baslat') confirm_action reboot 'Sistemi yeniden baslatmak istiyor musunuz?' ;;
+		'Askiya al') confirm_action suspend 'Sistemi askiya almak istiyor musunuz?' ;;
+		'Oturumu kapat') confirm_action logout 'DWM oturumunu kapatmak istiyor musunuz?' ;;
+	esac
+}
+
+action=${1:-status}
+case ${BLOCK_BUTTON:-} in
+	1) action=shutdown ;;
+	3) action=menu ;;
+esac
+
+case $action in
+	status) printf 'Guc\n' ;;
+	shutdown) confirm_action shutdown 'Sistemi kapatmak istiyor musunuz?' ;;
+	reboot) confirm_action reboot 'Sistemi yeniden baslatmak istiyor musunuz?' ;;
+	suspend) confirm_action suspend 'Sistemi askiya almak istiyor musunuz?' ;;
+	logout) confirm_action logout 'DWM oturumunu kapatmak istiyor musunuz?' ;;
+	menu) power_menu ;;
+	*)
+		printf 'Kullanim: %s [status|shutdown|reboot|suspend|logout|menu]\n' "${0##*/}" >&2
+		exit 2
+		;;
+esac

@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+COMMON=${NOIR_DWM_COMMON:-$SCRIPT_DIR/lib/noir-common.sh}
+[[ -r $COMMON ]] || COMMON=/usr/local/lib/noir-dwm/noir-common.sh
+# shellcheck source=scripts/lib/noir-common.sh
+source "$COMMON"
+
+nm() {
+	LC_ALL=C nmcli --colors no "$@"
+}
+
+nm_fields=()
+SCAN_STATE=${XDG_RUNTIME_DIR:-/tmp}/noir-network-scan.${UID}
+split_nmcli_line() {
+	local line=$1 field='' char
+	local escaped=0 i
+	nm_fields=()
+
+	for ((i = 0; i < ${#line}; i++)); do
+		char=${line:i:1}
+		if ((escaped)); then
+			field+=$char
+			escaped=0
+		elif [[ $char == \\ ]]; then
+			escaped=1
+		elif [[ $char == : ]]; then
+			nm_fields+=("$field")
+			field=''
+		else
+			field+=$char
+		fi
+	done
+	((escaped)) && field+='\'
+	nm_fields+=("$field")
+}
+
+device_by_type() {
+	local wanted=$1 line
+	while IFS= read -r line; do
+		split_nmcli_line "$line"
+		[[ ${nm_fields[1]:-} == "$wanted" ]] && {
+			printf '%s\n' "${nm_fields[0]}"
+			return 0
+		}
+	done < <(nm -t -f DEVICE,TYPE device status 2>/dev/null)
+	return 1
+}
+
+network_status() {
+	if ! command -v nmcli >/dev/null 2>&1; then
+		printf 'Ağ aracı yok\n'
+		return
+	fi
+
+	local line wired='' wifi='' state connection type device
+	while IFS= read -r line; do
+		split_nmcli_line "$line"
+		device=${nm_fields[0]:-}
+		type=${nm_fields[1]:-}
+		state=${nm_fields[2]:-}
+		connection=${nm_fields[3]:-}
+		[[ $state == connected ]] || continue
+		case $type in
+			ethernet) wired=${connection:-$device} ;;
+			wifi) wifi=${connection:-$device} ;;
+		esac
+	done < <(nm -t -f DEVICE,TYPE,STATE,CONNECTION device status 2>/dev/null)
+
+	if [[ -n $wired ]]; then
+		printf 'Kablolu bağlantı\n'
+	elif [[ -n $wifi ]]; then
+		printf 'Wi-Fi %s\n' "$wifi"
+	else
+		printf 'Bağlı değil\n'
+	fi
+}
+
+wifi_toggle() {
+	if [[ $(nm -t -f WIFI general 2>/dev/null) == enabled ]]; then
+		noir_run_checked Wi-Fi nm radio wifi off
+	else
+		noir_run_checked Wi-Fi nm radio wifi on
+	fi
+}
+
+wired_toggle() {
+	local dev state
+	dev=$(device_by_type ethernet) || {
+		noir_notify normal Ag "Kablolu ag aygiti bulunamadi."
+		return 1
+	}
+	state=$(nm -g GENERAL.STATE device show "$dev" 2>/dev/null | cut -d' ' -f1)
+	if [[ $state == 100 ]]; then
+		noir_run_checked Ag nm device disconnect "$dev"
+	else
+		noir_run_checked Ag nm device connect "$dev"
+	fi
+}
+
+wifi_scan() {
+	local dev line ssid signal security choice error password index
+	local -a labels=() ssids=()
+	local -A seen=()
+
+	dev=$(device_by_type wifi) || {
+		noir_notify critical Wi-Fi "Kablosuz ag aygiti bulunamadi."
+		return 1
+	}
+	: > "$SCAN_STATE"
+	trap 'rm -f "$SCAN_STATE"' RETURN
+	nm radio wifi on >/dev/null 2>&1 || true
+	nm device wifi rescan ifname "$dev" >/dev/null 2>&1 || true
+
+	while IFS= read -r line; do
+		split_nmcli_line "$line"
+		ssid=${nm_fields[0]:-}
+		signal=${nm_fields[1]:-0}
+		security=${nm_fields[2]:---}
+		[[ -n $ssid ]] || continue
+		[[ -z ${seen[$ssid]+x} ]] || continue
+		seen[$ssid]=1
+		ssids+=("$ssid")
+		printf -v index '%02d' "${#ssids[@]}"
+		labels+=("$index  $ssid  ${signal}%  ${security:--}")
+	done < <(nm -t -f SSID,SIGNAL,SECURITY device wifi list ifname "$dev" --rescan yes 2>/dev/null)
+
+	((${#labels[@]})) || {
+		noir_notify normal Wi-Fi "Gorunen ag bulunamadi."
+		return 1
+	}
+	choice=$(printf '%s\n' "${labels[@]}" | noir_menu 'Wi-Fi agi') || return 0
+	index=${choice%% *}
+	[[ $index =~ ^[0-9]+$ ]] || return 1
+	ssid=${ssids[10#$index - 1]:-}
+	[[ -n $ssid ]] || return 1
+
+	if error=$(nm device wifi connect "$ssid" ifname "$dev" 2>&1); then
+		noir_notify normal Wi-Fi "$ssid agina baglandi."
+		return 0
+	fi
+
+	password=$(noir_password "$ssid parolasi") || return 0
+	[[ -n $password ]] || return 0
+	if ! error=$(nm device wifi connect "$ssid" password "$password" ifname "$dev" 2>&1); then
+		noir_notify critical Wi-Fi "${error:-Baglanti kurulamadi.}"
+		return 1
+	fi
+	noir_notify normal Wi-Fi "$ssid agina baglandi."
+}
+
+disconnect_active() {
+	local dev
+	dev=$(device_by_type wifi) || return 1
+	noir_run_checked Wi-Fi nm device disconnect "$dev"
+}
+
+network_menu() {
+	local wifi_label wired_label choice
+	if [[ $(nm -t -f WIFI general 2>/dev/null) == enabled ]]; then
+		wifi_label="Wi-Fi'yi kapat"
+	else
+		wifi_label="Wi-Fi'yi ac"
+	fi
+
+	local wired_dev wired_state=''
+	wired_dev=$(device_by_type ethernet || true)
+	if [[ -n $wired_dev ]]; then
+		wired_state=$(nm -g GENERAL.STATE device show "$wired_dev" 2>/dev/null | cut -d' ' -f1)
+	fi
+	[[ $wired_state == 100 ]] && wired_label='Kablolu baglantiyi kes' || wired_label='Kablolu baglantiyi ac'
+
+	choice=$(printf '%s\n' \
+		'Kablosuz aglari tara ve baglan' \
+		"$wifi_label" \
+		"$wired_label" \
+		'Kablosuz baglantiyi kes' \
+		'Gelismis ag ayarlari' | noir_menu Ag) || return 0
+
+	case $choice in
+		'Kablosuz aglari tara ve baglan') wifi_scan ;;
+		"$wifi_label") wifi_toggle ;;
+		"$wired_label") wired_toggle ;;
+		'Kablosuz baglantiyi kes') disconnect_active ;;
+		'Gelismis ag ayarlari')
+			if command -v nm-connection-editor >/dev/null 2>&1; then
+				nm-connection-editor >/dev/null 2>&1 &
+			else
+				noir_notify normal Ag "nm-connection-editor bulunamadi."
+			fi
+			;;
+	esac
+}
+
+network_settings() {
+	command -v rfkill >/dev/null 2>&1 && rfkill unblock wifi 2>/dev/null || true
+	if command -v gazelle >/dev/null 2>&1; then
+		noir_open_tui Gazelle Gazelle gazelle
+	elif command -v nmtui-connect >/dev/null 2>&1; then
+		noir_open_terminal nmtui-connect
+	elif command -v nm-connection-editor >/dev/null 2>&1; then
+		nm-connection-editor >/dev/null 2>&1 &
+	else
+		network_menu
+	fi
+}
+
+action=${1:-status}
+case ${BLOCK_BUTTON:-} in
+	1) action=menu ;;
+	3) action=wifi-toggle ;;
+esac
+
+case $action in
+	status) network_status ;;
+	settings) network_settings ;;
+	menu) network_settings ;;
+	scan) wifi_scan ;;
+	wifi-toggle) wifi_toggle ;;
+	wired-toggle) wired_toggle ;;
+	disconnect) disconnect_active ;;
+	*)
+		printf 'Kullanim: %s [status|settings|menu|scan|wifi-toggle|wired-toggle|disconnect]\n' "${0##*/}" >&2
+		exit 2
+		;;
+esac
