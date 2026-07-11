@@ -5,15 +5,15 @@ set -u
 action=${1:-status}
 [[ -n ${BLOCK_BUTTON:-} ]] && action=launch
 
-build_app_menu() {
-	local rows=$1 map=$2
-	python - "$rows" "$map" <<'PY'
+build_app_cells() {
+	local cells=$1
+	python - "$cells" <<'PY'
 import configparser
 import os
 import shutil
 import sys
 
-rows_path, map_path = sys.argv[1], sys.argv[2]
+cells_path = sys.argv[1]
 home = os.path.expanduser("~")
 dirs = [
     os.path.join(home, ".local/share/applications"),
@@ -66,6 +66,7 @@ for base in dirs:
                 continue
             if not runnable(entry.get("TryExec")):
                 continue
+
             only_show = split_list(entry.get("OnlyShowIn"))
             not_show = split_list(entry.get("NotShowIn"))
             if only_show and not (only_show & desktop_names):
@@ -81,122 +82,84 @@ for base in dirs:
             if key in seen:
                 continue
             seen.add(key)
+
             icon = clean(entry.get("Icon")) or "application-x-executable"
+            if os.path.isabs(icon) and not os.path.exists(icon):
+                icon = "application-x-executable"
             apps.append((name.casefold(), name, icon, path))
 
 apps.sort(key=lambda item: item[0])
-with open(rows_path, "wb") as rows, open(map_path, "w", encoding="utf-8") as mapping:
+with open(cells_path, "w", encoding="utf-8") as handle:
     for _, name, icon, path in apps:
-        rows.write(name.encode("utf-8"))
-        rows.write(b"\0icon\x1f")
-        rows.write(icon.encode("utf-8"))
-        rows.write(b"\x1finfo\x1f")
-        rows.write(path.encode("utf-8"))
-        rows.write(b"\n")
-        mapping.write(path + "\n")
+        handle.write(icon + "\n")
+        handle.write(name + "\n")
+        handle.write(path + "\n")
 PY
 }
 
-launch_rofi() {
-	local theme rows map choice desktop
-	theme='
-	configuration {
-		show-icons: true;
-		matching: "fuzzy";
-		sorting-method: "fzf";
-		sidebar-mode: false;
-		font: "Noto Sans 11";
-		icon-theme: "Papirus-Dark";
-	}
-	* {
-		background: #15171cff;
-		background-alt: #20232aff;
-		foreground: #e6e9efff;
-		selected: #3584e4ff;
-		border-color: #3c414dff;
-	}
-	window {
-		location: north;
-		anchor: north;
-		y-offset: 8px;
-		width: 760px;
-		border: 1px;
-		border-radius: 6px;
-		background-color: @background;
-	}
-	mainbox { padding: 8px; spacing: 8px; }
-	inputbar { padding: 8px; background-color: @background-alt; border-radius: 4px; }
-	prompt { enabled: true; text-color: @selected; }
-	entry { text-color: @foreground; placeholder: "Uygulama ara"; }
-	listview { lines: 2; columns: 5; spacing: 4px; fixed-height: true; }
-	element { orientation: vertical; padding: 7px; border-radius: 4px; }
-	element selected.normal { background-color: @selected; }
-	element-icon { size: 28px; horizontal-align: 0.5; }
-	element-text { horizontal-align: 0.5; text-color: @foreground; }
-	mode-switcher { enabled: false; }
-	'
-	rows=$(mktemp "${TMPDIR:-/tmp}/noir-apps.XXXXXX")
-	map=$(mktemp "${TMPDIR:-/tmp}/noir-app-map.XXXXXX")
-	trap 'rm -f "$rows" "$map"' EXIT
-	build_app_menu "$rows" "$map"
-	[[ -s $map ]] || {
+launch_yad() {
+	local cells desktop
+	local -a values
+
+	cells=$(mktemp "${TMPDIR:-/tmp}/noir-apps.XXXXXX")
+	trap 'rm -f "$cells"' EXIT
+	build_app_cells "$cells"
+	[[ -s $cells ]] || {
 		printf 'noirLang: uygulama bulunamadi.\n' >&2
 		exit 1
 	}
-	choice=$(rofi \
-		-dmenu \
-		-i \
-		-sync \
-		-show-icons \
-		-format i \
-		-p Ara \
-		-kb-row-left Left \
-		-kb-row-right Right \
-		-kb-row-up Up \
-		-kb-row-down Down \
-		-theme-str "$theme" < "$rows") || exit 0
-	[[ $choice =~ ^[0-9]+$ ]] || exit 0
-	desktop=$(sed -n "$((choice + 1))p" "$map")
-	[[ -n $desktop ]] || exit 1
-	if command -v gio >/dev/null 2>&1; then
-		setsid -f gio launch "$desktop" >/dev/null 2>&1
-	elif command -v gtk-launch >/dev/null 2>&1; then
-		setsid -f gtk-launch "${desktop##*/}" >/dev/null 2>&1
+
+	mapfile -t values < "$cells"
+	desktop=$(yad \
+		--list \
+		--title=noirLang \
+		--text='Uygulama ara' \
+		--center \
+		--on-top \
+		--width=720 \
+		--height=360 \
+		--column=':IMG' \
+		--column='Uygulama' \
+		--column='Desktop:HD' \
+		--print-column=3 \
+		--search-column=2 \
+		--ellipsize=END \
+		--ellipsize-cols=2 \
+		--hide-header \
+		--button='Aç!gtk-open:0' \
+		--button='Kapat!gtk-close:1' \
+		"${values[@]}" 2>/dev/null) || exit 0
+
+	desktop=${desktop%|}
+	[[ -n $desktop ]] || exit 0
+	if command -v gio >/dev/null 2>&1 \
+		&& setsid -f gio launch "$desktop" >/dev/null 2>&1; then
+		exit 0
+	fi
+	if command -v gtk-launch >/dev/null 2>&1; then
+		local desktop_id=${desktop##*/}
+		desktop_id=${desktop_id%.desktop}
+		setsid -f gtk-launch "$desktop_id" >/dev/null 2>&1
 	else
 		printf 'noirLang: gio veya gtk-launch bulunamadi.\n' >&2
 		exit 1
 	fi
 }
 
-run_rofi() {
-	local theme
-	theme='
-	configuration {
-		show-icons: true;
-		matching: "fuzzy";
-		font: "Noto Sans 11";
-		icon-theme: "Papirus-Dark";
-	}
-	window {
-		location: north;
-		anchor: north;
-		y-offset: 8px;
-		width: 680px;
-		border: 1px;
-		border-radius: 6px;
-		background-color: #15171cff;
-	}
-	inputbar { padding: 8px; background-color: #20232aff; border-radius: 4px; }
-	entry { text-color: #e6e9efff; }
-	listview { lines: 7; columns: 1; spacing: 3px; }
-	element-text { text-color: @foreground; }
-	'
-	exec rofi \
-		-modi run \
-		-show run \
-		-matching fuzzy \
-		-p Calistir \
-		-theme-str "$theme"
+run_command() {
+	local cmd
+	if command -v yad >/dev/null 2>&1; then
+		cmd=$(yad --entry --title=Calistir --text=Komut --center --on-top \
+			--width=420 --button='Calistir:0' --button='Kapat:1' 2>/dev/null) || exit 0
+		[[ -n $cmd ]] || exit 0
+		setsid -f sh -c "$cmd" >/dev/null 2>&1
+	elif command -v dmenu_path >/dev/null 2>&1 && command -v dmenu >/dev/null 2>&1; then
+		cmd=$(dmenu_path | dmenu -i -p Calistir) || exit 0
+		setsid -f sh -c "$cmd" >/dev/null 2>&1
+	else
+		printf 'noirLang: yad veya dmenu kurulu degil.\n' >&2
+		exit 1
+	fi
 }
 
 case $action in
@@ -204,24 +167,15 @@ case $action in
 		printf 'noirLang\n'
 		;;
 	launch | menu)
-		if command -v rofi >/dev/null 2>&1; then
-			launch_rofi
-		elif command -v dmenu_run >/dev/null 2>&1; then
-			exec dmenu_run -i -p noirLang
+		if command -v yad >/dev/null 2>&1; then
+			launch_yad
 		else
-			printf 'noirLang: rofi veya dmenu kurulu degil.\n' >&2
+			printf 'noirLang: yad kurulu degil.\n' >&2
 			exit 1
 		fi
 		;;
 	run)
-		if command -v dmenu_path >/dev/null 2>&1 && command -v dmenu >/dev/null 2>&1; then
-			cmd=$(dmenu_path | dmenu -i -p Calistir) || exit 0
-			setsid -f sh -c "$cmd" >/dev/null 2>&1
-		elif command -v rofi >/dev/null 2>&1; then
-			run_rofi
-		else
-			exit 1
-		fi
+		run_command
 		;;
 	*)
 		printf 'Kullanim: %s [status|launch|run]\n' "${0##*/}" >&2

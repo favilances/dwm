@@ -100,7 +100,7 @@ static const char *clockcmd[]         = { "noir-clock", "calendar", NULL };
 static const Key keys[] = {
 	/* GNOME-like shortcuts captured from gsettings */
 	{ MODKEY,                       XK_Return, spawn,          {.v = termcmd } },
-	{ MODKEY,                       XK_space,  togglewindowstrip, {0} },
+	{ MODKEY,                       XK_space,  spawn,          {.v = launchercmd } },
 	{ MODKEY,                       XK_a,      spawn,          {.v = launchercmd } },
 	{ Mod1Mask,                     XK_F2,     spawn,          {.v = dmenucmd } },
 	{ MODKEY,                       XK_e,      spawn,          {.v = filecmd } },
