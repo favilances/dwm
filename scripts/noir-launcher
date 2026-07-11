@@ -2,18 +2,24 @@
 
 set -u
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+COMMON=${NOIR_DWM_COMMON:-$SCRIPT_DIR/lib/noir-common.sh}
+[[ -r $COMMON ]] || COMMON=/usr/local/lib/noir-dwm/noir-common.sh
+# shellcheck source=scripts/lib/noir-common.sh
+source "$COMMON"
+
 action=${1:-status}
 [[ -n ${BLOCK_BUTTON:-} ]] && action=launch
 
-build_app_cells() {
-	local cells=$1
-	python - "$cells" <<'PY'
+build_app_map() {
+	local map=$1
+	python - "$map" <<'PY'
 import configparser
 import os
 import shutil
 import sys
 
-cells_path = sys.argv[1]
+map_path = sys.argv[1]
 home = os.path.expanduser("~")
 dirs = [
     os.path.join(home, ".local/share/applications"),
@@ -31,7 +37,7 @@ def split_list(value):
     return {item for item in str(value or "").split(";") if item}
 
 def clean(value):
-    return " ".join(str(value or "").replace("\x00", "").split())
+    return " ".join(str(value or "").replace("\x00", "").replace("\t", " ").split())
 
 def runnable(try_exec):
     if not try_exec:
@@ -82,82 +88,59 @@ for base in dirs:
             if key in seen:
                 continue
             seen.add(key)
-
-            icon = clean(entry.get("Icon")) or "application-x-executable"
-            if os.path.isabs(icon) and not os.path.exists(icon):
-                icon = "application-x-executable"
-            apps.append((name.casefold(), name, icon, path))
+            apps.append((name.casefold(), name, path))
 
 apps.sort(key=lambda item: item[0])
-with open(cells_path, "w", encoding="utf-8") as handle:
-    for _, name, icon, path in apps:
-        handle.write(icon + "\n")
-        handle.write(name + "\n")
-        handle.write(path + "\n")
+with open(map_path, "w", encoding="utf-8") as handle:
+    for _, name, path in apps:
+        handle.write(f"{name}\t{path}\n")
 PY
 }
 
-launch_yad() {
-	local cells desktop
-	local -a values
+launch_desktop() {
+	local desktop=$1 desktop_id
 
-	cells=$(mktemp "${TMPDIR:-/tmp}/noir-apps.XXXXXX")
-	trap 'rm -f "$cells"' EXIT
-	build_app_cells "$cells"
-	[[ -s $cells ]] || {
-		printf 'noirLang: uygulama bulunamadi.\n' >&2
+	[[ -n $desktop ]] || return 1
+	if command -v gio >/dev/null 2>&1 \
+		&& setsid -f gio launch "$desktop" >/dev/null 2>&1; then
+		return 0
+	fi
+	if command -v gtk-launch >/dev/null 2>&1; then
+		desktop_id=${desktop##*/}
+		desktop_id=${desktop_id%.desktop}
+		setsid -f gtk-launch "$desktop_id" >/dev/null 2>&1
+		return 0
+	fi
+	noir_notify critical noirLang 'gio veya gtk-launch bulunamadi.'
+	return 1
+}
+
+launch_menu() {
+	local map choice desktop
+
+	map=$(mktemp "${TMPDIR:-/tmp}/noir-apps.XXXXXX")
+	trap 'rm -f "$map"' EXIT
+	build_app_map "$map"
+	[[ -s $map ]] || {
+		noir_notify critical noirLang 'Uygulama bulunamadi.'
 		exit 1
 	}
 
-	mapfile -t values < "$cells"
-	desktop=$(yad \
-		--list \
-		--title=noirLang \
-		--text='Uygulama ara' \
-		--center \
-		--on-top \
-		--width=720 \
-		--height=360 \
-		--column=':IMG' \
-		--column='Uygulama' \
-		--column='Desktop:HD' \
-		--print-column=3 \
-		--search-column=2 \
-		--ellipsize=END \
-		--ellipsize-cols=2 \
-		--hide-header \
-		--button='Aç!gtk-open:0' \
-		--button='Kapat!gtk-close:1' \
-		"${values[@]}" 2>/dev/null) || exit 0
-
-	desktop=${desktop%|}
-	[[ -n $desktop ]] || exit 0
-	if command -v gio >/dev/null 2>&1 \
-		&& setsid -f gio launch "$desktop" >/dev/null 2>&1; then
-		exit 0
-	fi
-	if command -v gtk-launch >/dev/null 2>&1; then
-		local desktop_id=${desktop##*/}
-		desktop_id=${desktop_id%.desktop}
-		setsid -f gtk-launch "$desktop_id" >/dev/null 2>&1
-	else
-		printf 'noirLang: gio veya gtk-launch bulunamadi.\n' >&2
-		exit 1
-	fi
+	choice=$(cut -f1 "$map" | noir_menu noirLang) || exit 0
+	[[ -n $choice ]] || exit 0
+	desktop=$(awk -F '\t' -v choice="$choice" '$1 == choice { print $2; exit }' "$map")
+	launch_desktop "$desktop"
 }
 
 run_command() {
 	local cmd
-	if command -v yad >/dev/null 2>&1; then
-		cmd=$(yad --entry --title=Calistir --text=Komut --center --on-top \
-			--width=420 --button='Calistir:0' --button='Kapat:1' 2>/dev/null) || exit 0
+
+	if command -v dmenu_path >/dev/null 2>&1 && command -v dmenu >/dev/null 2>&1; then
+		cmd=$(dmenu_path | noir_menu Calistir) || exit 0
 		[[ -n $cmd ]] || exit 0
 		setsid -f sh -c "$cmd" >/dev/null 2>&1
-	elif command -v dmenu_path >/dev/null 2>&1 && command -v dmenu >/dev/null 2>&1; then
-		cmd=$(dmenu_path | dmenu -i -p Calistir) || exit 0
-		setsid -f sh -c "$cmd" >/dev/null 2>&1
 	else
-		printf 'noirLang: yad veya dmenu kurulu degil.\n' >&2
+		noir_notify critical noirLang 'dmenu bulunamadi.'
 		exit 1
 	fi
 }
@@ -167,12 +150,7 @@ case $action in
 		printf 'noirLang\n'
 		;;
 	launch | menu)
-		if command -v yad >/dev/null 2>&1; then
-			launch_yad
-		else
-			printf 'noirLang: yad kurulu degil.\n' >&2
-			exit 1
-		fi
+		launch_menu
 		;;
 	run)
 		run_command
