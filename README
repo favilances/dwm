@@ -78,3 +78,11 @@ The network status segment opens Gazelle, a NetworkManager TUI, when
 `gazelle` is installed.  The Bluetooth segment opens `bluetuith`, with
 `bluetui` and Blueman kept only as fallbacks.  Status text is generated
 by `scripts/noir-network` and `scripts/noir-bluetooth`.
+
+
+Audio and screenshots
+---------------------
+`scripts/noir-volume` handles the bar volume text, scroll actions, and
+small YAD volume/output controls.  `scripts/noir-screenshot` uses
+Flameshot with X11 legacy capture enabled and sends interactive captures
+to the clipboard while also using the configured screenshots directory.
