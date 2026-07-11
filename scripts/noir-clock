@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+set -u
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+COMMON=${NOIR_DWM_COMMON:-$SCRIPT_DIR/lib/noir-common.sh}
+[[ -r $COMMON ]] || COMMON=/usr/local/lib/noir-dwm/noir-common.sh
+# shellcheck source=scripts/lib/noir-common.sh
+source "$COMMON"
+
+case ${BLOCK_BUTTON:-} in
+	1 | 3) action=calendar ;;
+	*) action=${1:-status} ;;
+esac
+
+case $action in
+	status) date '+%d.%m %H:%M' ;;
+	calendar)
+		if command -v gsimplecal >/dev/null 2>&1; then
+			exec gsimplecal
+		elif command -v gnome-calendar >/dev/null 2>&1; then
+			exec gnome-calendar
+		elif command -v cal >/dev/null 2>&1; then
+			if command -v dmenu >/dev/null 2>&1; then
+				cal -m | dmenu -p Takvim -l 8 >/dev/null
+			elif command -v rofi >/dev/null 2>&1; then
+				cal -m | rofi -dmenu -p Takvim >/dev/null
+			else
+				noir_open_terminal sh -c 'cal -m; printf "\nKapatmak icin Enter..."; read -r _'
+			fi
+		else
+			printf 'takvim araci bulunamadi.\n' >&2
+			exit 1
+		fi
+		;;
+	*)
+		printf 'Kullanim: %s [status|calendar]\n' "${0##*/}" >&2
+		exit 2
+		;;
+esac

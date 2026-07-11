@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+COMMON=${NOIR_DWM_COMMON:-$SCRIPT_DIR/lib/noir-common.sh}
+[[ -r $COMMON ]] || COMMON=/usr/local/lib/noir-dwm/noir-common.sh
+# shellcheck source=scripts/lib/noir-common.sh
+source "$COMMON"
+
+battery_paths() {
+	local path
+	for path in /sys/class/power_supply/BAT*; do
+		[[ -d $path ]] && printf '%s\n' "$path"
+	done
+}
+
+battery_snapshot() {
+	local path now full capacity state
+	local total_now=0 total_full=0 percent_sum=0 count=0
+	BATTERY_STATE=Unknown
+
+	while IFS= read -r path; do
+		[[ -r $path/status ]] && state=$(<"$path/status") || state=Unknown
+		case $state in
+			Discharging) BATTERY_STATE=Discharging ;;
+			Charging) [[ $BATTERY_STATE == Discharging ]] || BATTERY_STATE=Charging ;;
+			Full) [[ $BATTERY_STATE == Unknown ]] && BATTERY_STATE=Full ;;
+		esac
+
+		now=''
+		full=''
+		[[ -r $path/energy_now ]] && now=$(<"$path/energy_now")
+		[[ -r $path/energy_full ]] && full=$(<"$path/energy_full")
+		[[ -n $now && -n $full ]] || {
+			[[ -r $path/charge_now ]] && now=$(<"$path/charge_now")
+			[[ -r $path/charge_full ]] && full=$(<"$path/charge_full")
+		}
+		if [[ $now =~ ^[0-9]+$ && $full =~ ^[0-9]+$ && $full -gt 0 ]]; then
+			total_now=$((total_now + now))
+			total_full=$((total_full + full))
+		elif [[ -r $path/capacity ]]; then
+			capacity=$(<"$path/capacity")
+			[[ $capacity =~ ^[0-9]+$ ]] && {
+				percent_sum=$((percent_sum + capacity))
+				count=$((count + 1))
+			}
+		fi
+	done < <(battery_paths)
+
+	if ((total_full > 0)); then
+		BATTERY_PERCENT=$((100 * total_now / total_full))
+	elif ((count > 0)); then
+		BATTERY_PERCENT=$((percent_sum / count))
+	else
+		BATTERY_PERCENT=-1
+	fi
+}
+
+battery_icon() {
+	local percent=$1 state=$2
+	if [[ $state == Charging ]]; then
+		printf '󰂄'
+	elif ((percent >= 90)); then
+		printf '󰁹'
+	elif ((percent >= 70)); then
+		printf '󰂀'
+	elif ((percent >= 50)); then
+		printf '󰁾'
+	elif ((percent >= 30)); then
+		printf '󰁼'
+	elif ((percent >= 10)); then
+		printf '󰁺'
+	else
+		printf '󰂎'
+	fi
+}
+
+battery_status() {
+	battery_snapshot
+	if ((BATTERY_PERCENT < 0)); then
+		printf 'AC\n'
+	else
+		case $BATTERY_STATE in
+			Charging) printf '%d%% sarj\n' "$BATTERY_PERCENT" ;;
+			*) printf '%d%%\n' "$BATTERY_PERCENT" ;;
+		esac
+	fi
+}
+
+battery_details() {
+	local details path
+	if command -v upower >/dev/null 2>&1; then
+		details=$(upower -e 2>/dev/null | while IFS= read -r path; do
+			[[ $path == *battery* ]] && upower -i "$path"
+		done)
+	else
+		battery_snapshot
+		details="Durum: $BATTERY_STATE\nDoluluk: $BATTERY_PERCENT%"
+	fi
+	[[ -n $details ]] || details='Bu bilgisayarda batarya bulunamadi.'
+
+	if command -v zenity >/dev/null 2>&1; then
+		zenity --info --title=Batarya --width=460 --text="<tt>$(printf '%s' "$details" \
+			| sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')</tt>"
+	else
+		noir_open_terminal sh -c 'upower -d; printf "\nKapatmak icin Enter..."; read -r _'
+	fi
+}
+
+action=${1:-status}
+[[ -n ${BLOCK_BUTTON:-} ]] && action=details
+case $action in
+	status) battery_status ;;
+	details) battery_details ;;
+	*)
+		printf 'Kullanim: %s [status|details]\n' "${0##*/}" >&2
+		exit 2
+		;;
+esac

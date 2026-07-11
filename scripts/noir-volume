@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+COMMON=${NOIR_DWM_COMMON:-$SCRIPT_DIR/lib/noir-common.sh}
+[[ -r $COMMON ]] || COMMON=/usr/local/lib/noir-dwm/noir-common.sh
+# shellcheck source=scripts/lib/noir-common.sh
+source "$COMMON"
+
+volume_get() {
+	if command -v pamixer >/dev/null 2>&1; then
+		VOLUME=$(pamixer --get-volume 2>/dev/null || printf 0)
+		[[ $(pamixer --get-mute 2>/dev/null) == true ]] && MUTED=yes || MUTED=no
+	elif command -v pactl >/dev/null 2>&1; then
+		VOLUME=$(pactl get-sink-volume @DEFAULT_SINK@ 2>/dev/null \
+			| awk 'match($0, /[0-9]+%/) { print substr($0, RSTART, RLENGTH - 1); exit }')
+		[[ $(pactl get-sink-mute @DEFAULT_SINK@ 2>/dev/null) == *yes ]] && MUTED=yes || MUTED=no
+	else
+		VOLUME=0
+		MUTED=yes
+	fi
+	[[ $VOLUME =~ ^[0-9]+$ ]] || VOLUME=0
+}
+
+volume_set_percent() {
+	local percent=$1
+	[[ $percent =~ ^[0-9]+$ ]] || return 1
+	if command -v pamixer >/dev/null 2>&1; then
+		pamixer --allow-boost --set-volume "$percent"
+	elif command -v pactl >/dev/null 2>&1; then
+		pactl set-sink-volume @DEFAULT_SINK@ "${percent}%"
+	fi
+	status_refresh
+}
+
+volume_status() {
+	volume_get
+	if [[ $MUTED == yes ]]; then
+		printf 'Ses kapali\n'
+	else
+		printf 'Ses %d%%\n' "$VOLUME"
+	fi
+}
+
+status_refresh() {
+	local status_command
+	status_command=$(command -v noir-status 2>/dev/null || printf '%s/noir-status\n' "$SCRIPT_DIR")
+	if pgrep -u "$UID" -f '(^|/)noir-status --loop($|[[:space:]])' >/dev/null 2>&1; then
+		pkill -USR1 -u "$UID" -f '[n]oir-status --loop' 2>/dev/null || true
+	else
+		"$status_command" --loop >/dev/null 2>&1 &
+	fi
+	command -v xsetroot >/dev/null 2>&1 \
+		&& xsetroot -name "$("$status_command" --once 2>/dev/null)" 2>/dev/null || true
+}
+
+volume_osd() {
+	volume_get
+	local label
+	if [[ $MUTED == yes ]]; then
+		label='Kapali'
+	else
+		label="${VOLUME}%"
+	fi
+	if command -v dunstify >/dev/null 2>&1; then
+		dunstify -r 9175 -t 900 -h "int:value:$VOLUME" Ses "$label"
+	elif command -v notify-send >/dev/null 2>&1; then
+		notify-send -t 900 -h "string:x-dunst-stack-tag:noir-volume" \
+			-h "int:value:$VOLUME" Ses "$label"
+	fi
+}
+
+volume_change() {
+	local direction=$1
+	if command -v pamixer >/dev/null 2>&1; then
+		[[ $direction == up ]] && pamixer --allow-boost --increase 5 || pamixer --decrease 5
+	elif command -v pactl >/dev/null 2>&1; then
+		[[ $direction == up ]] && pactl set-sink-volume @DEFAULT_SINK@ +5% \
+			|| pactl set-sink-volume @DEFAULT_SINK@ -5%
+	fi
+	status_refresh
+	volume_osd
+}
+
+volume_outputs() {
+	local line sink desc choice
+	local -a labels=() sinks=()
+	command -v pactl >/dev/null 2>&1 || {
+		noir_notify normal Ses 'pactl bulunamadi.'
+		return 1
+	}
+
+	while IFS=$'\t' read -r sink desc; do
+		[[ -n $sink ]] || continue
+		[[ -n $desc ]] || desc=$sink
+		sinks+=("$sink")
+		labels+=("$desc")
+	done < <(pactl list sinks 2>/dev/null | awk '
+		/^[[:space:]]*Name:/ { name=$2 }
+		/^[[:space:]]*Description:/ {
+			sub(/^[[:space:]]*Description:[[:space:]]*/, "")
+			print name "\t" $0
+		}
+	')
+
+	((${#labels[@]})) || {
+		noir_notify normal Ses 'Ses cikis cihazi bulunamadi.'
+		return 1
+	}
+
+	if command -v yad >/dev/null 2>&1; then
+		choice=$(printf '%s\n' "${labels[@]}" \
+			| yad --list --title=Ses --text='Cikis cihazi' --center --on-top \
+				--width=420 --height=260 --column=Cihaz --hide-header \
+				--button=Sec:0 --button=Kapat:1 2>/dev/null) || return 0
+		choice=${choice%|}
+	else
+		choice=$(printf '%s\n' "${labels[@]}" | noir_menu 'Ses cikisi') || return 0
+	fi
+	for line in "${!labels[@]}"; do
+		if [[ ${labels[$line]} == "$choice" ]]; then
+			pactl set-default-sink "${sinks[$line]}"
+			pactl list short sink-inputs 2>/dev/null | awk '{ print $1 }' \
+				| while read -r input; do
+					[[ -n $input ]] && pactl move-sink-input "$input" "${sinks[$line]}" >/dev/null 2>&1 || true
+				done
+			status_refresh
+			return 0
+		fi
+	done
+	return 1
+}
+
+volume_slider() {
+	volume_get
+	if command -v yad >/dev/null 2>&1; then
+		yad --scale --title=Ses --text='Ses seviyesi' --center --on-top \
+			--width=360 --height=120 --min-value=0 --max-value=150 --step=1 \
+			--value="$VOLUME" --print-partial --button='Cihaz:2' --button='Kapat:1' \
+			2>/dev/null | while IFS= read -r value; do
+				[[ $value =~ ^[0-9]+$ ]] && volume_set_percent "$value"
+			done
+		case ${PIPESTATUS[0]} in
+			2) volume_outputs ;;
+		esac
+	elif command -v pavucontrol >/dev/null 2>&1; then
+		pavucontrol >/dev/null 2>&1 &
+	else
+		volume_menu
+	fi
+}
+
+volume_toggle() {
+	if command -v pamixer >/dev/null 2>&1; then
+		pamixer --toggle-mute
+	elif command -v pactl >/dev/null 2>&1; then
+		pactl set-sink-mute @DEFAULT_SINK@ toggle
+	fi
+	status_refresh
+	volume_osd
+}
+
+volume_menu() {
+	local choice
+	choice=$(printf '%s\n' 'Sesi ac/kapat' 'Ses +5' 'Ses -5' 'Ses cikisi' 'Ayrintili ses ayarlari' \
+		| noir_menu Ses) || return 0
+	case $choice in
+		'Sesi ac/kapat') volume_toggle ;;
+		'Ses +5') volume_change up ;;
+		'Ses -5') volume_change down ;;
+		'Ses cikisi') volume_outputs ;;
+		'Ayrintili ses ayarlari')
+			if command -v pavucontrol >/dev/null 2>&1; then
+				pavucontrol >/dev/null 2>&1 &
+			else
+				noir_notify normal Ses 'pavucontrol bulunamadi.'
+			fi
+			;;
+	esac
+}
+
+volume_settings() {
+	volume_slider
+}
+
+action=${1:-status}
+case ${BLOCK_BUTTON:-} in
+	1) action=menu ;;
+	2) action=toggle ;;
+	4) action=up ;;
+	5) action=down ;;
+esac
+
+case $action in
+	status) volume_status ;;
+	settings) volume_settings ;;
+	outputs) volume_outputs ;;
+	menu) volume_menu ;;
+	toggle) volume_toggle ;;
+	up) volume_change up ;;
+	down) volume_change down ;;
+	*)
+		printf 'Kullanim: %s [status|settings|outputs|menu|toggle|up|down]\n' "${0##*/}" >&2
+		exit 2
+		;;
+esac
