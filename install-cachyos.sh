@@ -82,6 +82,7 @@ packages=(
 	maim
 	flameshot
 	xclip
+	i3lock-color
 	slock
 	arandr
 	wmctrl
@@ -135,6 +136,7 @@ printf 'noirLang yardimci komutlari kuruluyor...\n'
 for script in "$REPO_ROOT"/scripts/noir-*; do
 	as_root install -Dm755 "$script" "/usr/local/bin/${script##*/}"
 done
+as_root ln -sfn /usr/local/bin/noir-lock /usr/local/bin/slock
 as_root install -Dm644 "$REPO_ROOT/scripts/lib/noir-common.sh" \
 	/usr/local/lib/noir-dwm/noir-common.sh
 as_root install -Dm644 "$REPO_ROOT/packaging/noir-dwm.desktop" \

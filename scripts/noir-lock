@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+
+set -u
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+COMMON=${NOIR_DWM_COMMON:-$SCRIPT_DIR/lib/noir-common.sh}
+[[ -r $COMMON ]] || COMMON=/usr/local/lib/noir-dwm/noir-common.sh
+# shellcheck source=scripts/lib/noir-common.sh
+source "$COMMON"
+
+find_wallpaper() {
+	local candidate
+
+	if [[ -n ${NOIR_WALLPAPER:-} && -f ${NOIR_WALLPAPER:-} ]]; then
+		printf '%s\n' "$NOIR_WALLPAPER"
+		return 0
+	fi
+
+	for candidate in \
+		"$HOME/.config/noir-dwm/wallpaper.png" \
+		"$HOME/.config/noir-dwm/wallpaper.jpg" \
+		"$HOME/.config/noir-dwm/wallpaper.jpeg" \
+		"$HOME/Pictures/wallpaper.png" \
+		"$HOME/Pictures/wallpaper.jpg" \
+		"$HOME/Pictures/wallpaper.jpeg"; do
+		if [[ -f $candidate ]]; then
+			printf '%s\n' "$candidate"
+			return 0
+		fi
+	done
+
+	if [[ -r $HOME/.fehbg ]]; then
+		python - "$HOME/.fehbg" <<'PY'
+import os
+import shlex
+import sys
+
+try:
+    lines = open(sys.argv[1], "r", encoding="utf-8", errors="replace")
+except OSError:
+    raise SystemExit(1)
+
+for line in lines:
+    try:
+        parts = shlex.split(line)
+    except ValueError:
+        continue
+    for part in reversed(parts):
+        part = os.path.expanduser(part)
+        if not part.startswith("-") and os.path.isfile(part):
+            print(part)
+            raise SystemExit(0)
+raise SystemExit(1)
+PY
+	fi
+}
+
+prepare_wallpaper() {
+	local source=$1 cache_dir cache
+
+	[[ -n $source && -f $source ]] || return 1
+	cache_dir=${XDG_CACHE_HOME:-$HOME/.cache}/noir-dwm
+	cache=$cache_dir/lock-wallpaper.png
+	mkdir -p "$cache_dir"
+
+	if [[ ! -s $cache || $source -nt $cache ]]; then
+		if command -v magick >/dev/null 2>&1; then
+			magick "$source" -auto-orient "$cache" || return 1
+		elif command -v convert >/dev/null 2>&1; then
+			convert "$source" -auto-orient "$cache" || return 1
+		elif [[ ${source,,} == *.png ]]; then
+			printf '%s\n' "$source"
+			return 0
+		else
+			return 1
+		fi
+	fi
+
+	printf '%s\n' "$cache"
+}
+
+lock_i3lock() {
+	local image=${1:-}
+	local -a args=(
+		-n
+		-e
+		-F
+		--indicator
+		--radius=78
+		--ring-width=6
+		--pointer=default
+		--pass-volume-keys
+		--pass-screen-keys
+		--color=111318ff
+		--inside-color=111318cc
+		--ring-color=3584e4dd
+		--line-color=00000000
+		--separator-color=00000000
+		--keyhl-color=79c0ffff
+		--bshl-color=ff6b6bff
+		--insidever-color=111318ee
+		--ringver-color=79c0ffff
+		--insidewrong-color=2a1111ee
+		--ringwrong-color=ff6b6bff
+		--verif-text='Kontrol ediliyor'
+		--wrong-text='Yanlis sifre'
+		--noinput-text=''
+		--lock-text=''
+		--lockfailed-text='Kilitlenemedi'
+		--greeter-text='Sifre'
+		--greeter-pos='ix:iy-118'
+		--greeter-size=18
+		--greeter-color=e6e9efff
+		--verif-color=e6e9efff
+		--wrong-color=ff6b6bff
+		--time-str=''
+		--date-str=''
+		--no-modkey-text
+	)
+
+	[[ -n $image && -f $image ]] && args+=(-i "$image")
+	i3lock "${args[@]}"
+}
+
+wallpaper=$(find_wallpaper || true)
+lock_image=$(prepare_wallpaper "$wallpaper" || true)
+
+if command -v i3lock >/dev/null 2>&1; then
+	lock_i3lock "$lock_image" && exit 0
+fi
+
+for locker in /usr/bin/slock /bin/slock; do
+	if [[ -x $locker ]]; then
+		exec "$locker"
+	fi
+done
+
+noir_notify critical noirLang 'Kilit araci bulunamadi.'
+exit 1

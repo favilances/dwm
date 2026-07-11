@@ -84,6 +84,7 @@ static const char *powercmd[]         = { "noir-power", "shutdown", NULL };
 static const char *powermenucmd[]     = { "noir-power", "menu", NULL };
 static const char *logoutcmd[]        = { "noir-power", "logout", NULL };
 static const char *suspendcmd[]       = { "noir-power", "suspend", NULL };
+static const char *lockcmd[]          = { "noir-lock", NULL };
 static const char *networkcmd[]       = { "noir-network", "settings", NULL };
 static const char *networkmenucmd[]   = { "noir-network", "menu", NULL };
 static const char *wifitogglecmd[]    = { "noir-network", "wifi-toggle", NULL };
@@ -118,7 +119,7 @@ static const Key keys[] = {
 	{ MODKEY|ControlMask,           XK_comma,  spawn,          SHCMD("xfce4-settings-manager || pavucontrol") },
 	{ MODKEY,                       XK_p,      spawn,          SHCMD("arandr") },
 	{ 0,                            XF86XK_Display, spawn,     SHCMD("arandr") },
-	{ MODKEY,                       XK_l,      spawn,          SHCMD("slock") },
+	{ MODKEY,                       XK_l,      spawn,          {.v = lockcmd } },
 	{ MODKEY,                       XK_n,      spawn,          SHCMD("dunstctl history-pop || true") },
 	{ MODKEY,                       XK_v,      spawn,          SHCMD("dunstctl history-pop || true") },
 	{ MODKEY,                       XK_s,      spawn,          {.v = networkcmd } },
