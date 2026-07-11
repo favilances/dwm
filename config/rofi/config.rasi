@@ -25,7 +25,7 @@ window {
     location: north;
     anchor: north;
     y-offset: 8px;
-    width: 680px;
+    width: 760px;
     border: 1px;
     border-radius: 6px;
     background-color: @background;
@@ -35,9 +35,10 @@ mainbox { padding: 8px; spacing: 8px; }
 inputbar { padding: 8px; background-color: @background-alt; border-radius: 4px; }
 prompt { text-color: @selected; }
 entry { text-color: @foreground; placeholder: "Uygulama ara"; }
-listview { lines: 8; columns: 1; spacing: 3px; fixed-height: true; }
-element { padding: 7px; border-radius: 4px; }
+listview { lines: 2; columns: 5; spacing: 4px; fixed-height: true; }
+element { orientation: vertical; padding: 7px; border-radius: 4px; }
 element selected.normal { background-color: @selected; }
 element-text { text-color: @foreground; }
-element-icon { size: 24px; }
+element-icon { size: 28px; horizontal-align: 0.5; }
+element-text { horizontal-align: 0.5; text-color: @foreground; }
 mode-switcher { enabled: false; }
