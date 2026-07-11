@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=noirLang dwm
+Comment=Minimal noirLang dwm session
+Exec=/usr/local/bin/noir-session
+TryExec=/usr/local/bin/noir-session
+Type=Application
+DesktopNames=dwm;noirLang;
