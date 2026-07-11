@@ -219,6 +219,7 @@ static void togglefloating(const Arg *arg);
 static void togglefullscreen(const Arg *arg);
 static void toggletag(const Arg *arg);
 static void toggleview(const Arg *arg);
+static void togglewindowstrip(const Arg *arg);
 static void unfocus(Client *c, int setfocus);
 static void unmanage(Client *c, int destroyed);
 static void unmapnotify(XEvent *e);
@@ -284,6 +285,12 @@ static Display *dpy;
 static Drw *drw;
 static Monitor *mons, *selmon;
 static Window root, wmcheckwin;
+
+/* window strip state */
+static int windowstrip = 0;
+static int stripselected = 0;
+static Client *stripclients[256];
+static int stripcount = 0;
 
 /* configuration, allows nested code to access above variables */
 #include "config.h"
@@ -450,6 +457,28 @@ buttonpress(XEvent *e)
 		focus(NULL);
 	}
 	if (ev->window == selmon->barwin) {
+		/* window strip mode: handle clicks on strip items */
+		if (windowstrip && stripcount > 0) {
+			int sx = 0;
+			for (i = 0; i < (unsigned int)stripcount; i++) {
+				char label[280];
+				int iw;
+				snprintf(label, sizeof label, " %s ", stripclients[i]->name);
+				iw = TEXTW(label);
+				if (ev->x >= sx && ev->x < sx + iw) {
+					focus(stripclients[i]);
+					restack(selmon);
+					windowstrip = 0;
+					drawbar(selmon);
+					return;
+				}
+				sx += iw;
+			}
+			windowstrip = 0;
+			drawbar(selmon);
+			return;
+		}
+
 		w = statuswidths[StatusClock];
 		x = (selmon->ww - w) / 2;
 		if (w && ev->x >= x && ev->x < x + w) {
@@ -741,6 +770,25 @@ drawbar(Monitor *m)
 
 	if (!m->showbar)
 		return;
+
+	/* window strip mode: show all open windows in the bar */
+	if (windowstrip && m == selmon && stripcount > 0) {
+		drw_setscheme(drw, scheme[SchemeNorm]);
+		drw_rect(drw, 0, 0, m->ww, bh, 1, 1);
+		x = 0;
+		for (i = 0; i < (unsigned int)stripcount; i++) {
+			char label[280];
+			snprintf(label, sizeof label, " %s ", stripclients[i]->name);
+			w = TEXTW(label);
+			if (x + w > m->ww)
+				break;
+			drw_setscheme(drw, scheme[i == (unsigned int)stripselected ? SchemeSel : SchemeNorm]);
+			drw_text(drw, x, 0, w, bh, lrpad / 2, label, 0);
+			x += w;
+		}
+		drw_map(drw, m->barwin, 0, 0, m->ww, bh);
+		return;
+	}
 
 	/* draw status first so it can be overdrawn by tags later */
 	if (m == selmon) { /* status is only drawn on selected monitor */
@@ -1058,6 +1106,47 @@ keypress(XEvent *e)
 
 	ev = &e->xkey;
 	keysym = XKeycodeToKeysym(dpy, (KeyCode)ev->keycode, 0);
+
+	/* window strip mode: intercept navigation keys */
+	if (windowstrip) {
+		switch (keysym) {
+		case XK_Left:
+		case XK_h:
+			if (stripselected > 0)
+				stripselected--;
+			else
+				stripselected = stripcount - 1;
+			drawbar(selmon);
+			return;
+		case XK_Right:
+		case XK_l:
+			if (stripselected < stripcount - 1)
+				stripselected++;
+			else
+				stripselected = 0;
+			drawbar(selmon);
+			return;
+		case XK_Return:
+		case XK_space:
+			if (stripselected >= 0 && stripselected < stripcount) {
+				focus(stripclients[stripselected]);
+				restack(selmon);
+			}
+			windowstrip = 0;
+			drawbar(selmon);
+			return;
+		case XK_Escape:
+		case XK_Tab:
+			windowstrip = 0;
+			drawbar(selmon);
+			return;
+		default:
+			windowstrip = 0;
+			drawbar(selmon);
+			break;
+		}
+	}
+
 	for (i = 0; i < LENGTH(keys); i++)
 		if (keysym == keys[i].keysym
 		&& CLEANMASK(keys[i].mod) == CLEANMASK(ev->state)
@@ -1842,6 +1931,33 @@ toggleview(const Arg *arg)
 		focus(NULL);
 		arrange(selmon);
 	}
+}
+
+void
+togglewindowstrip(const Arg *arg)
+{
+	Client *c;
+	int n = 0;
+
+	if (windowstrip) {
+		windowstrip = 0;
+		drawbar(selmon);
+		return;
+	}
+
+	stripcount = 0;
+	for (c = selmon->clients; c; c = c->next) {
+		if (ISVISIBLE(c) && stripcount < 256) {
+			stripclients[stripcount++] = c;
+			n++;
+		}
+	}
+	if (n == 0)
+		return;
+
+	windowstrip = 1;
+	stripselected = 0;
+	drawbar(selmon);
 }
 
 void

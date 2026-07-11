@@ -73,7 +73,6 @@ static const Layout layouts[] = {
 static char dmenumon[2] = "0";
 static const char *launchercmd[]      = { "noir-launcher", "menu", NULL };
 static const char *dmenucmd[]         = { "noir-launcher", "run", NULL };
-static const char *switchercmd[]      = { "noir-window-switcher", NULL };
 static const char *termcmd[]          = { "alacritty", NULL };
 static const char *filecmd[]          = { "noir-files", NULL };
 static const char *screenshotcmd[]    = { "noir-screenshot", "gui", NULL };
@@ -101,7 +100,7 @@ static const char *clockcmd[]         = { "noir-clock", "calendar", NULL };
 static const Key keys[] = {
 	/* GNOME-like shortcuts captured from gsettings */
 	{ MODKEY,                       XK_Return, spawn,          {.v = termcmd } },
-	{ MODKEY,                       XK_space,  spawn,          {.v = launchercmd } },
+	{ MODKEY,                       XK_space,  togglewindowstrip, {0} },
 	{ MODKEY,                       XK_a,      spawn,          {.v = launchercmd } },
 	{ Mod1Mask,                     XK_F2,     spawn,          {.v = dmenucmd } },
 	{ MODKEY,                       XK_e,      spawn,          {.v = filecmd } },
@@ -133,9 +132,9 @@ static const Key keys[] = {
 	{ ControlMask|Mod1Mask,         XK_Delete, spawn,          {.v = logoutcmd } },
 
 	/* dwm navigation and layout */
-	{ Mod1Mask,                     XK_Tab,    spawn,          {.v = switchercmd } },
+	{ Mod1Mask,                     XK_Tab,    togglewindowstrip, {0} },
 	{ Mod1Mask|ShiftMask,           XK_Tab,    focusstack,     {.i = -1 } },
-	{ MODKEY,                       XK_Tab,    spawn,          {.v = switchercmd } },
+	{ MODKEY,                       XK_Tab,    togglewindowstrip, {0} },
 	{ MODKEY|ShiftMask,             XK_Tab,    focusstack,     {.i = -1 } },
 	{ Mod1Mask,                     XK_Escape, focusstack,     {.i = +1 } },
 	{ Mod1Mask|ShiftMask,           XK_Escape, focusstack,     {.i = -1 } },
@@ -162,7 +161,7 @@ static const Key keys[] = {
 	{ MODKEY|ShiftMask,             XK_f,      setlayout,      {.v = &layouts[2]} },
 	{ MODKEY|ShiftMask,             XK_space,  togglefloating, {0} },
 	{ MODKEY,                       XK_m,      setlayout,      {.v = &layouts[1]} },
-	{ MODKEY,                       XK_grave,  spawn,          {.v = switchercmd } },
+	{ MODKEY,                       XK_grave,  togglewindowstrip, {0} },
 	{ MODKEY,                       XK_comma,  focusmon,       {.i = -1 } },
 	{ MODKEY,                       XK_period, focusmon,       {.i = +1 } },
 	{ MODKEY|ShiftMask,             XK_comma,  tagmon,         {.i = -1 } },
