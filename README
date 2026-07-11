@@ -94,3 +94,19 @@ Autostart uses `feh --bg-fill` when a wallpaper exists.  Preferred paths
 are `~/.config/noir-dwm/wallpaper.png`, `~/.config/noir-dwm/wallpaper.jpg`,
 `~/Pictures/wallpaper.png`, and `~/Pictures/wallpaper.jpg`.  Set
 `NOIR_WALLPAPER` to force another file.
+
+
+Window switching and tiling
+---------------------------
+`Alt+Tab`, `Super+Tab`, and `Super+Grave` use the in-bar window strip for
+quick keyboard switching.  Moving a tiled window with `Super` + left mouse
+keeps it tiled after dropping it on another monitor, so a single window on
+the target monitor fills the tiled area again.
+
+
+CachyOS installation
+--------------------
+Run `./install-cachyos.sh` from a normal user shell to install packages,
+compile dwm, install helper scripts, configure LightDM, and enable required
+services.  Review the script before running it because it changes display
+manager and desktop-session state.
