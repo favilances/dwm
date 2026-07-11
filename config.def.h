@@ -12,6 +12,7 @@ static const char *fonts[]          = {
 };
 static const char dmenufont[]       = "JetBrainsMono Nerd Font:size=10";
 static const char launcherlabel[]   = " noirLang ";
+static const unsigned int titlemaxchars = 48;
 static const char col_bg[]          = "#111318";
 static const char col_panel[]       = "#171a20";
 static const char col_border[]      = "#303642";

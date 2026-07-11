@@ -90,6 +90,8 @@ typedef struct Monitor Monitor;
 typedef struct Client Client;
 struct Client {
 	char name[256];
+	char class[128];
+	char instance[128];
 	float mina, maxa;
 	int x, y, w, h;
 	int oldx, oldy, oldw, oldh;
@@ -156,6 +158,7 @@ static void buttonpress(XEvent *e);
 static void checkotherwm(void);
 static void cleanup(void);
 static void cleanupmon(Monitor *mon);
+static const char *clientbarname(Client *c, char *buf, size_t size);
 static void clientmessage(XEvent *e);
 static void configure(Client *c);
 static void configurenotify(XEvent *e);
@@ -225,6 +228,7 @@ static void unmanage(Client *c, int destroyed);
 static void unmapnotify(XEvent *e);
 static void updatebarpos(Monitor *m);
 static void updatebars(void);
+static void updateclass(Client *c);
 static void updateclientlist(void);
 static int updategeom(void);
 static void updatenumlockmask(void);
@@ -306,14 +310,12 @@ applyrules(Client *c)
 	unsigned int i;
 	const Rule *r;
 	Monitor *m;
-	XClassHint ch = { NULL, NULL };
 
 	/* rule matching */
 	c->isfloating = 0;
 	c->tags = 0;
-	XGetClassHint(dpy, c->win, &ch);
-	class    = ch.res_class ? ch.res_class : broken;
-	instance = ch.res_name  ? ch.res_name  : broken;
+	class    = c->class[0]    ? c->class    : broken;
+	instance = c->instance[0] ? c->instance : broken;
 
 	for (i = 0; i < LENGTH(rules); i++) {
 		r = &rules[i];
@@ -328,10 +330,6 @@ applyrules(Client *c)
 				c->mon = m;
 		}
 	}
-	if (ch.res_class)
-		XFree(ch.res_class);
-	if (ch.res_name)
-		XFree(ch.res_name);
 	c->tags = c->tags & TAGMASK ? c->tags & TAGMASK : c->mon->tagset[c->mon->seltags];
 }
 
@@ -530,6 +528,39 @@ checkotherwm(void)
 	XSync(dpy, False);
 	XSetErrorHandler(xerror);
 	XSync(dpy, False);
+}
+
+const char *
+clientbarname(Client *c, char *buf, size_t size)
+{
+	const char *src, *base;
+	size_t i, j;
+	int cap = 1;
+	char ch;
+
+	if (!c)
+		return "";
+	src = c->class[0] ? c->class : c->instance[0] ? c->instance : c->name;
+	base = strrchr(src, '.');
+	if (base && base[1])
+		src = base + 1;
+	if (!size)
+		return src;
+	for (i = j = 0; src[i] && j + 1 < size; i++) {
+		ch = src[i];
+		if (ch == '-' || ch == '_') {
+			if (j && buf[j - 1] != ' ')
+				buf[j++] = ' ';
+			cap = 1;
+			continue;
+		}
+		if (cap && ch >= 'a' && ch <= 'z')
+			ch -= 'a' - 'A';
+		buf[j++] = ch;
+		cap = ch == ' ';
+	}
+	buf[j] = '\0';
+	return buf[0] ? buf : c->name;
 }
 
 void
@@ -763,6 +794,7 @@ void
 drawbar(Monitor *m)
 {
 	int x, w, tw = 0;
+	int clockx = 0;
 	int boxs = drw->fonts->h / 9;
 	int boxw = drw->fonts->h / 6 + 2;
 	unsigned int i, occ = 0, urg = 0;
@@ -778,7 +810,11 @@ drawbar(Monitor *m)
 		x = 0;
 		for (i = 0; i < (unsigned int)stripcount; i++) {
 			char label[280];
-			snprintf(label, sizeof label, " %s ", stripclients[i]->name);
+			char name[128];
+			const char *title = stripclients[i]->name;
+			if (strlen(title) > titlemaxchars)
+				title = clientbarname(stripclients[i], name, sizeof name);
+			snprintf(label, sizeof label, " %s ", title);
 			w = TEXTW(label);
 			if (x + w > m->ww)
 				break;
@@ -830,8 +866,17 @@ drawbar(Monitor *m)
 
 	if ((w = m->ww - tw - x) > bh) {
 		if (m->sel) {
+			char name[128];
+			const char *title = m->sel->name;
+			if (strlen(title) > titlemaxchars)
+				title = clientbarname(m->sel, name, sizeof name);
+			if (m == selmon && statuswidths[StatusClock]) {
+				clockx = (m->ww - statuswidths[StatusClock]) / 2;
+				if (x < clockx && x + (int)TEXTW(title) > clockx - lrpad)
+					title = clientbarname(m->sel, name, sizeof name);
+			}
 			drw_setscheme(drw, scheme[m == selmon ? SchemeSel : SchemeNorm]);
-			drw_text(drw, x, 0, w, bh, lrpad / 2, m->sel->name, 0);
+			drw_text(drw, x, 0, w, bh, lrpad / 2, title, 0);
 			if (m->sel->isfloating)
 				drw_rect(drw, x + boxs, boxs, boxw, boxw, m->sel->isfixed, 0);
 		} else {
@@ -1187,6 +1232,7 @@ manage(Window w, XWindowAttributes *wa)
 	c->oldbw = wa->border_width;
 
 	updatetitle(c);
+	updateclass(c);
 	if (XGetTransientForHint(dpy, w, &trans) && (t = wintoclient(trans))) {
 		c->mon = t->mon;
 		c->tags = t->tags;
@@ -1390,6 +1436,11 @@ propertynotify(XEvent *e)
 		case XA_WM_HINTS:
 			updatewmhints(c);
 			drawbars();
+			break;
+		case XA_WM_CLASS:
+			updateclass(c);
+			if (c == c->mon->sel)
+				drawbar(c->mon);
 			break;
 		}
 		if (ev->atom == XA_WM_NAME || ev->atom == netatom[NetWMName]) {
@@ -2046,6 +2097,25 @@ updatebarpos(Monitor *m)
 		m->wy = m->topbar ? m->wy + bh : m->wy;
 	} else
 		m->by = -bh;
+}
+
+void
+updateclass(Client *c)
+{
+	XClassHint ch = { NULL, NULL };
+
+	c->class[0] = '\0';
+	c->instance[0] = '\0';
+	if (XGetClassHint(dpy, c->win, &ch)) {
+		if (ch.res_class)
+			snprintf(c->class, sizeof c->class, "%s", ch.res_class);
+		if (ch.res_name)
+			snprintf(c->instance, sizeof c->instance, "%s", ch.res_name);
+	}
+	if (ch.res_class)
+		XFree(ch.res_class);
+	if (ch.res_name)
+		XFree(ch.res_name);
 }
 
 void
