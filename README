@@ -46,3 +46,10 @@ Configuration
 -------------
 The configuration of dwm is done by creating a custom config.h
 and (re)compiling the source code.
+
+
+noirLang session
+----------------
+This tree includes a complete noirLang dwm session.  LightDM starts it
+through `/usr/local/bin/noir-session`, which applies display settings,
+starts the autostart helpers, and then execs `/usr/local/bin/dwm`.
