@@ -70,3 +70,11 @@ Application launcher
 It builds a filtered list from visible `.desktop` applications, keeps app
 icons through Rofi dmenu metadata, and launches the selected entry with
 `gio launch`.
+
+
+Network and Bluetooth
+---------------------
+The network status segment opens Gazelle, a NetworkManager TUI, when
+`gazelle` is installed.  The Bluetooth segment opens `bluetuith`, with
+`bluetui` and Blueman kept only as fallbacks.  Status text is generated
+by `scripts/noir-network` and `scripts/noir-bluetooth`.
