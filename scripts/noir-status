@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
+module() {
+	local name=$1
+	local command_path="$SCRIPT_DIR/noir-$name"
+	if [[ ! -x $command_path ]] && command -v "noir-$name" >/dev/null 2>&1; then
+		command_path="noir-$name"
+	fi
+	"$command_path" status 2>/dev/null | tr '|' ' '
+}
+
+status_once() {
+	local clock volume battery bluetooth network power
+	clock=$(module clock)
+	volume=$(module volume)
+	battery=$(module battery)
+	bluetooth=$(module bluetooth)
+	network=$(module network)
+	power=$(module power)
+
+	# dwm treats each tab-delimited field as an independently clickable segment.
+	printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+		"$clock" "$volume" "$battery" "$bluetooth" "$network" "$power"
+}
+
+status_loop() {
+	command -v xsetroot >/dev/null 2>&1 || {
+		printf 'noir-status: xsetroot bulunamadi.\n' >&2
+		exit 1
+	}
+	trap 'refresh=1' USR1
+	trap 'exit 0' INT TERM HUP
+	local refresh=1
+	while :; do
+		if ((refresh)); then
+			xsetroot -name "$(status_once)"
+			refresh=0
+		fi
+		for _ in 1 2 3 4 5; do
+			sleep 1 &
+			wait $! || true
+			((refresh)) && break
+		done
+		refresh=1
+	done
+}
+
+case ${1:---loop} in
+	--once | status) status_once ;;
+	--loop) status_loop ;;
+	*)
+		printf 'Kullanim: %s [--loop|--once]\n' "${0##*/}" >&2
+		exit 2
+		;;
+esac
