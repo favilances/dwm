@@ -1,0 +1,6 @@
+dwm
+*.o
+*.tar.gz
+config.h
+.cache/
+.tmp/
