@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+set -u
+
+export XDG_CURRENT_DESKTOP=dwm
+export XDG_SESSION_DESKTOP=dwm
+export DESKTOP_SESSION=dwm
+
+if command -v noir-displays >/dev/null 2>&1; then
+	noir-displays >/dev/null 2>&1 || true
+fi
+
+if command -v noir-autostart >/dev/null 2>&1; then
+	noir-autostart >/dev/null 2>&1 &
+fi
+
+exec /usr/local/bin/dwm

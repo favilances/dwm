@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+set -u
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+
+resolve_noir_command() {
+	local name=$1
+	if command -v "$name" >/dev/null 2>&1; then
+		command -v "$name"
+	else
+		printf '%s/%s\n' "$SCRIPT_DIR" "$name"
+	fi
+}
+
+start_once() {
+	local process=$1
+	shift
+	if pgrep -u "$UID" -x "$process" >/dev/null 2>&1 \
+		|| pgrep -u "$UID" -f "(^|/)${process}([[:space:]]|$)" >/dev/null 2>&1; then
+		return 0
+	fi
+	"$@" >/dev/null 2>&1 &
+}
+
+export XDG_CURRENT_DESKTOP=dwm
+export XDG_SESSION_DESKTOP=dwm
+export GTK_THEME=Adwaita:dark
+
+command -v dbus-update-activation-environment >/dev/null 2>&1 \
+	&& dbus-update-activation-environment --systemd DISPLAY XAUTHORITY \
+		XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP >/dev/null 2>&1 || true
+command -v systemctl >/dev/null 2>&1 \
+	&& systemctl --user import-environment DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP \
+		XDG_SESSION_DESKTOP >/dev/null 2>&1 || true
+
+"$(resolve_noir_command noir-theme)" >/dev/null 2>&1 || true
+"$(resolve_noir_command noir-displays)" >/dev/null 2>&1 || true
+
+command -v xsetroot >/dev/null 2>&1 && xsetroot -cursor_name left_ptr -solid '#111318'
+command -v xset >/dev/null 2>&1 && {
+	xset r rate 250 35 >/dev/null 2>&1 || true
+	xset s 600 600 >/dev/null 2>&1 || true
+	xset +dpms >/dev/null 2>&1 || true
+}
+
+wallpaper=${NOIR_WALLPAPER:-}
+if [[ -z $wallpaper ]]; then
+	for candidate in \
+		"$HOME/.config/noir-dwm/wallpaper.png" \
+		"$HOME/.config/noir-dwm/wallpaper.jpg" \
+		"$HOME/Pictures/wallpaper.png" \
+		"$HOME/Pictures/wallpaper.jpg"; do
+		[[ -f $candidate ]] && {
+			wallpaper=$candidate
+			break
+		}
+	done
+fi
+[[ -n $wallpaper && -f $wallpaper ]] && command -v feh >/dev/null 2>&1 \
+	&& feh --no-fehbg --bg-fill "$wallpaper" >/dev/null 2>&1 &
+
+start_once picom picom --config "$HOME/.config/picom/picom.conf"
+start_once dunst dunst
+start_once xfce4-power-manager xfce4-power-manager
+start_once touchegg touchegg
+
+polkit_agent=/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
+[[ -x $polkit_agent ]] && start_once polkit-gnome-authentication-agent-1 "$polkit_agent"
+
+status_command=$(resolve_noir_command noir-status)
+if ! pgrep -u "$UID" -f '(^|/)noir-status --loop($|[[:space:]])' >/dev/null 2>&1; then
+	"$status_command" --loop >/dev/null 2>&1 &
+fi

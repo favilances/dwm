@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+set -u
+
+apply_gsettings() {
+	command -v gsettings >/dev/null 2>&1 || return 0
+	local schema
+	for schema in org.gnome.desktop.interface org.gnome.desktop.wm.preferences; do
+		gsettings list-schemas 2>/dev/null | grep -qx "$schema" || continue
+		case $schema in
+			org.gnome.desktop.interface)
+				gsettings set "$schema" color-scheme prefer-dark 2>/dev/null || true
+				gsettings set "$schema" gtk-theme Adwaita-dark 2>/dev/null || true
+				gsettings set "$schema" icon-theme Papirus-Dark 2>/dev/null || true
+				gsettings set "$schema" cursor-theme Adwaita 2>/dev/null || true
+				gsettings set "$schema" font-name 'Noto Sans 10' 2>/dev/null || true
+				gsettings set "$schema" monospace-font-name 'JetBrainsMono Nerd Font 10' 2>/dev/null || true
+				;;
+			org.gnome.desktop.wm.preferences)
+				gsettings set "$schema" button-layout ':minimize,maximize,close' 2>/dev/null || true
+				;;
+		esac
+	done
+}
+
+apply_xfce() {
+	command -v xfconf-query >/dev/null 2>&1 || return 0
+	xfconf-query -c xsettings -p /Net/ThemeName -n -t string -s Adwaita-dark 2>/dev/null \
+		|| xfconf-query -c xsettings -p /Net/ThemeName -s Adwaita-dark 2>/dev/null || true
+	xfconf-query -c xsettings -p /Net/IconThemeName -n -t string -s Papirus-Dark 2>/dev/null \
+		|| xfconf-query -c xsettings -p /Net/IconThemeName -s Papirus-Dark 2>/dev/null || true
+}
+
+apply_kde() {
+	local writer=''
+	command -v kwriteconfig6 >/dev/null 2>&1 && writer=kwriteconfig6
+	[[ -n $writer ]] || command -v kwriteconfig5 >/dev/null 2>&1 && writer=kwriteconfig5
+	[[ -n $writer ]] || return 0
+	"$writer" --file kdeglobals --group General --key ColorScheme BreezeDark
+	"$writer" --file kdeglobals --group Icons --key Theme breeze-dark
+}
+
+apply_gsettings
+apply_xfce
+apply_kde
+
+command -v xdg-mime >/dev/null 2>&1 && {
+	xdg-mime default thunar.desktop inode/directory 2>/dev/null || true
+	xdg-mime default thunar.desktop application/x-gnome-saved-search 2>/dev/null || true
+}
