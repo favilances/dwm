@@ -62,3 +62,11 @@ internal panel on `DP-2` at 1920x1080 144 Hz and the HDMI monitor on
 `HDMI-0` at 1920x1080 60 Hz.  Override the output names or refresh rates
 with `NOIR_LAPTOP_OUTPUT`, `NOIR_EXTERNAL_OUTPUT`, `NOIR_LAPTOP_RATE`,
 and `NOIR_EXTERNAL_RATE`.
+
+
+Application launcher
+--------------------
+`Super+Space` and the `noirLang` bar label open `scripts/noir-launcher`.
+It builds a filtered list from visible `.desktop` applications, keeps app
+icons through Rofi dmenu metadata, and launches the selected entry with
+`gio launch`.
