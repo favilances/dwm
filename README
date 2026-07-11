@@ -86,3 +86,11 @@ Audio and screenshots
 small YAD volume/output controls.  `scripts/noir-screenshot` uses
 Flameshot with X11 legacy capture enabled and sends interactive captures
 to the clipboard while also using the configured screenshots directory.
+
+
+Wallpaper
+---------
+Autostart uses `feh --bg-fill` when a wallpaper exists.  Preferred paths
+are `~/.config/noir-dwm/wallpaper.png`, `~/.config/noir-dwm/wallpaper.jpg`,
+`~/Pictures/wallpaper.png`, and `~/Pictures/wallpaper.jpg`.  Set
+`NOIR_WALLPAPER` to force another file.
