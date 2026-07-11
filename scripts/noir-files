@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -u
+
+if command -v thunar >/dev/null 2>&1; then
+	exec thunar --window "$HOME"
+fi
+
+if command -v notify-send >/dev/null 2>&1; then
+	notify-send -u critical Dosyalar 'Thunar bulunamadi.'
+fi
+exit 1

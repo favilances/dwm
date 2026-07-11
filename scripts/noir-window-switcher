@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+set -u
+
+if ! command -v wmctrl >/dev/null 2>&1; then
+	if command -v notify-send >/dev/null 2>&1; then
+		notify-send -u critical Pencere 'wmctrl kurulu degil.'
+	fi
+	exit 1
+fi
+
+choose() {
+	if command -v dmenu >/dev/null 2>&1; then
+		dmenu -i -p Pencere -l 12
+	elif command -v rofi >/dev/null 2>&1; then
+		rofi -dmenu -i -p Pencere
+	else
+		return 1
+	fi
+}
+
+choice=$(
+	wmctrl -lx | awk '
+		{
+			id=$1
+			desktop=$2
+			host=$3
+			class=$4
+			$1=$2=$3=$4=""
+			sub(/^ +/, "")
+			title=$0
+			if (title == "")
+				title=class
+			printf "%s  [%s]  %s\n", title, class, id
+		}
+	' | choose
+) || exit 0
+
+winid=${choice##* }
+case $winid in
+	0x*) exec wmctrl -ia "$winid" ;;
+esac
+
+exit 1

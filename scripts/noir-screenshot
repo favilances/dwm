@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+
+set -u
+
+picture_dir=${XDG_PICTURES_DIR:-}
+if [[ -z $picture_dir ]] && command -v xdg-user-dir >/dev/null 2>&1; then
+	picture_dir=$(xdg-user-dir PICTURES 2>/dev/null || true)
+fi
+picture_dir=${picture_dir:-$HOME/Pictures}
+screenshot_dir=$picture_dir/Screenshots
+mkdir -p "$screenshot_dir"
+filename="$screenshot_dir/$(date '+%Y-%m-%d_%H-%M-%S').png"
+
+notify_saved() {
+	command -v notify-send >/dev/null 2>&1 \
+		&& notify-send Ekran-goruntusu "$filename"
+}
+
+flameshot_config() {
+	local conf=$HOME/.config/flameshot/flameshot.ini
+	mkdir -p "${conf%/*}"
+	[[ -f $conf ]] || printf '[General]\n' > "$conf"
+	grep -q '^\[General\]' "$conf" || printf '\n[General]\n' >> "$conf"
+	if grep -q '^useX11LegacyScreenshot=' "$conf"; then
+		sed -i 's/^useX11LegacyScreenshot=.*/useX11LegacyScreenshot=true/' "$conf"
+	else
+		printf 'useX11LegacyScreenshot=true\n' >> "$conf"
+	fi
+	if grep -q '^disabledTrayIcon=' "$conf"; then
+		sed -i 's/^disabledTrayIcon=.*/disabledTrayIcon=true/' "$conf"
+	else
+		printf 'disabledTrayIcon=true\n' >> "$conf"
+	fi
+	if grep -q '^savePath=' "$conf"; then
+		sed -i "s|^savePath=.*|savePath=$screenshot_dir|" "$conf"
+	else
+		printf 'savePath=%s\n' "$screenshot_dir" >> "$conf"
+	fi
+}
+
+flameshot_gui() {
+	flameshot_config
+	exec flameshot gui --clipboard --path "$screenshot_dir"
+}
+
+flameshot_full() {
+	flameshot_config
+	flameshot full -p "$screenshot_dir" && return 0
+	return 1
+}
+
+case ${1:-full} in
+	gui | area)
+		if command -v flameshot >/dev/null 2>&1; then
+			flameshot_gui
+		elif command -v spectacle >/dev/null 2>&1; then
+			exec spectacle
+		else
+			set -- full
+		fi
+		;;
+	full)
+		if command -v flameshot >/dev/null 2>&1 && flameshot_full; then
+			:
+		elif command -v spectacle >/dev/null 2>&1 && spectacle --background --nonotify --fullscreen --output "$filename"; then
+			notify_saved
+		elif command -v maim >/dev/null 2>&1 && maim "$filename"; then
+			notify_saved
+		elif command -v import >/dev/null 2>&1 && import -window root "$filename"; then
+			notify_saved
+		else
+			exit 1
+		fi
+		;;
+	window)
+		if command -v spectacle >/dev/null 2>&1 && spectacle --background --nonotify --activewindow --output "$filename"; then
+			notify_saved
+		elif command -v maim >/dev/null 2>&1 && command -v xdotool >/dev/null 2>&1 \
+			&& maim -i "$(xdotool getactivewindow)" "$filename"; then
+			notify_saved
+		elif command -v import >/dev/null 2>&1 && import "$filename"; then
+			notify_saved
+		else
+			exit 1
+		fi
+		;;
+	clip)
+		if command -v flameshot >/dev/null 2>&1; then
+			flameshot_config
+			exec flameshot gui --clipboard --path "$screenshot_dir"
+		elif command -v spectacle >/dev/null 2>&1; then
+			exec spectacle --background --nonotify --region --clipboard
+		else
+			exit 1
+		fi
+		;;
+	*)
+		printf 'Kullanim: %s [gui|full|window|area|clip]\n' "${0##*/}" >&2
+		exit 2
+		;;
+esac

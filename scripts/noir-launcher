@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+
+set -u
+
+action=${1:-status}
+[[ -n ${BLOCK_BUTTON:-} ]] && action=launch
+
+launch_rofi() {
+	local theme
+	theme='
+	configuration {
+		modi: "drun";
+		show-icons: true;
+		display-drun: "";
+		drun-display-format: "{name}";
+		drun-match-fields: "name,generic,exec,categories";
+		drun-show-actions: false;
+		matching: "fuzzy";
+		sorting-method: "fzf";
+		sidebar-mode: false;
+		font: "Noto Sans 11";
+		icon-theme: "Papirus-Dark";
+	}
+	* {
+		background: #15171cff;
+		background-alt: #20232aff;
+		foreground: #e6e9efff;
+		selected: #3584e4ff;
+		border-color: #3c414dff;
+	}
+	window {
+		location: north;
+		anchor: north;
+		y-offset: 8px;
+		width: 680px;
+		border: 1px;
+		border-radius: 6px;
+		background-color: @background;
+	}
+	mainbox { padding: 8px; spacing: 8px; }
+	inputbar { padding: 8px; background-color: @background-alt; border-radius: 4px; }
+	prompt { enabled: true; text-color: @selected; }
+	entry { text-color: @foreground; placeholder: "Uygulama ara"; }
+	listview { lines: 8; columns: 1; spacing: 3px; fixed-height: true; }
+	element { padding: 7px; border-radius: 4px; }
+	element selected.normal { background-color: @selected; }
+	element-icon { size: 24px; }
+	element-text { text-color: @foreground; }
+	mode-switcher { enabled: false; }
+	'
+	exec rofi \
+		-modi drun \
+		-show drun \
+		-show-icons \
+		-no-drun-show-actions \
+		-matching fuzzy \
+		-drun-match-fields name,generic,exec,categories \
+		-drun-display-format '{name}' \
+		-p Ara \
+		-theme-str "$theme"
+}
+
+case $action in
+	status)
+		printf 'noirLang\n'
+		;;
+	launch | menu)
+		if command -v rofi >/dev/null 2>&1; then
+			launch_rofi
+		elif command -v dmenu_run >/dev/null 2>&1; then
+			exec dmenu_run -i -p noirLang
+		else
+			printf 'noirLang: rofi veya dmenu kurulu degil.\n' >&2
+			exit 1
+		fi
+		;;
+	run)
+		if command -v dmenu_path >/dev/null 2>&1 && command -v dmenu >/dev/null 2>&1; then
+			cmd=$(dmenu_path | dmenu -i -p Calistir) || exit 0
+			setsid -f sh -c "$cmd" >/dev/null 2>&1
+		elif command -v rofi >/dev/null 2>&1; then
+			exec rofi -modi run -show run -matching fuzzy -p Calistir
+		else
+			exit 1
+		fi
+		;;
+	*)
+		printf 'Kullanim: %s [status|launch|run]\n' "${0##*/}" >&2
+		exit 2
+		;;
+esac
