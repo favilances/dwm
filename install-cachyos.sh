@@ -65,6 +65,7 @@ packages=(
 	lightdm
 	lightdm-gtk-greeter
 	networkmanager
+	kdeconnect
 	python-textual
 	python-dbus
 	wireguard-tools
@@ -82,6 +83,7 @@ packages=(
 	maim
 	flameshot
 	xclip
+	ab-download-manager
 	i3lock-color
 	slock
 	arandr

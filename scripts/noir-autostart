@@ -64,6 +64,12 @@ start_once picom picom --config "$HOME/.config/picom/picom.conf"
 start_once dunst dunst
 start_once xfce4-power-manager xfce4-power-manager
 start_once touchegg touchegg
+command -v kdeconnectd >/dev/null 2>&1 \
+	&& start_once kdeconnectd kdeconnectd
+command -v kdeconnect-indicator >/dev/null 2>&1 \
+	&& start_once kdeconnect-indicator kdeconnect-indicator
+ab_download_manager=/opt/abdownloadmanager/bin/ABDownloadManager
+[[ -x $ab_download_manager ]] && start_once ABDownloadManager "$ab_download_manager"
 
 polkit_agent=/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
 [[ -x $polkit_agent ]] && start_once polkit-gnome-authentication-agent-1 "$polkit_agent"
